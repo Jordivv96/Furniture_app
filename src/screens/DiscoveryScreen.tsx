@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Heart, RefreshCw } from 'lucide-react'
+import { Heart } from 'lucide-react'
 import { useSessionStore } from '../store/sessionStore'
 import { LAMP_CATALOG } from '../data/catalog'
 import { TagWeightedEngine } from '../engine/tagWeighted'
@@ -10,82 +9,103 @@ import { BuyModal } from '../components/BuyModal'
 import { WishlistDrawer } from '../components/WishlistDrawer'
 import type { FurnitureItem, RankedItem } from '../types'
 
+const CATEGORIES = [
+  { id: 'lamp',  label: 'Lamps',   catalog: LAMP_CATALOG, active: true  },
+  { id: 'sofa',  label: 'Sofas',   catalog: [],           active: false },
+  { id: 'table', label: 'Tables',  catalog: [],           active: false },
+  { id: 'bed',   label: 'Beds',    catalog: [],           active: false },
+]
+
 export function DiscoveryScreen() {
   const {
+    category: initialCategory,
     swipeHistory,
     wishlist,
     addToWishlist,
     removeFromWishlist,
     recordDiscoverySwipe,
-    setScreen,
-    reset,
   } = useSessionStore((s) => ({
+    category: s.category,
     swipeHistory: s.swipeHistory,
     wishlist: s.wishlist,
     addToWishlist: s.addToWishlist,
     removeFromWishlist: s.removeFromWishlist,
     recordDiscoverySwipe: s.recordDiscoverySwipe,
-    setScreen: s.setScreen,
-    reset: s.reset,
   }))
 
-  // Build ranked list once on mount using the engine populated during grasp
+  // Local engine — seeded from grasp, updated on every discovery swipe
+  const engineRef = useRef(new TagWeightedEngine())
   const rankedRef = useRef<RankedItem[]>([])
-  useEffect(() => {
-    const eng = new TagWeightedEngine()
-    for (const ev of swipeHistory) {
-      if (ev.phase === 'grasp') eng.ingest(ev)
-    }
-    rankedRef.current = eng.rank(LAMP_CATALOG)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [activeCategory, setActiveCategory] = useState(initialCategory ?? 'lamp')
   const [topIndex, setTopIndex] = useState(0)
+  const [generation, setGeneration] = useState(0)
   const [buyItem, setBuyItem] = useState<FurnitureItem | null>(null)
   const [wishlistOpen, setWishlistOpen] = useState(false)
 
+  // Seed engine from grasp history on mount
+  useEffect(() => {
+    for (const ev of swipeHistory) {
+      if (ev.phase === 'grasp') engineRef.current.ingest(ev)
+    }
+    rankAndReset(activeCategory)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function getCatalog(categoryId: string) {
+    return CATEGORIES.find((c) => c.id === categoryId)?.catalog ?? LAMP_CATALOG
+  }
+
+  function rankAndReset(categoryId: string) {
+    rankedRef.current = engineRef.current.rank(getCatalog(categoryId))
+    setTopIndex(0)
+    setGeneration((g) => g + 1)
+  }
+
+  function handleCategorySwitch(categoryId: string) {
+    if (categoryId === activeCategory) return
+    const cat = CATEGORIES.find((c) => c.id === categoryId)
+    if (!cat?.active) return
+    setActiveCategory(categoryId)
+    rankAndReset(categoryId)
+  }
+
   const currentItem = rankedRef.current[topIndex] ?? null
   const isFavourited = currentItem ? wishlist.some((w) => w.id === currentItem.id) : false
-  const allSeen = topIndex >= rankedRef.current.length
 
   function handleSwipe(score: number) {
     if (!currentItem) return
-    recordDiscoverySwipe({
+    const event = {
       itemId: currentItem.id,
       score,
       tags: currentItem.tags,
-      phase: 'discovery',
-    })
-    setTopIndex((i) => i + 1)
+      phase: 'discovery' as const,
+    }
+    engineRef.current.ingest(event)
+    recordDiscoverySwipe(event)
+
+    const next = topIndex + 1
+    if (next >= rankedRef.current.length) {
+      rankedRef.current = engineRef.current.rank(getCatalog(activeCategory))
+      setGeneration((g) => g + 1)
+      setTopIndex(0)
+    } else {
+      setTopIndex(next)
+    }
   }
 
   function handleFavourite() {
     if (!currentItem) return
-    if (isFavourited) {
-      removeFromWishlist(currentItem.id)
-    } else {
-      addToWishlist(currentItem)
-    }
-  }
-
-  function handleBuy() {
-    if (!currentItem) return
-    setBuyItem(currentItem)
+    if (isFavourited) removeFromWishlist(currentItem.id)
+    else addToWishlist(currentItem)
   }
 
   return (
     <div className="min-h-screen bg-[#F7F5F2] flex flex-col">
       {/* Header */}
       <div className="px-6 pt-12 pb-2 flex items-center justify-between">
-        <div>
-          <p className="text-xs font-semibold text-amber-700 uppercase tracking-widest mb-0.5">
-            Your matches · Lamps
-          </p>
-          <h1 className="font-serif text-3xl font-semibold text-gray-900">
-            Swipe to discover
-          </h1>
-        </div>
-
-        {/* Wishlist button */}
+        <h1 className="font-serif text-3xl font-semibold text-gray-900">
+          Discover
+        </h1>
         <button
           onClick={() => setWishlistOpen(true)}
           className="relative w-11 h-11 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors"
@@ -99,6 +119,31 @@ export function DiscoveryScreen() {
         </button>
       </div>
 
+      {/* Category switcher */}
+      <div className="px-6 pb-3 flex gap-2 overflow-x-auto no-scrollbar">
+        {CATEGORIES.map((cat) => {
+          const isActive = cat.id === activeCategory
+          return (
+            <button
+              key={cat.id}
+              onClick={() => handleCategorySwitch(cat.id)}
+              disabled={!cat.active}
+              className={`
+                flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-all
+                ${isActive
+                  ? 'bg-gray-900 text-white'
+                  : cat.active
+                    ? 'bg-white text-gray-600 border border-gray-200 hover:border-gray-400'
+                    : 'bg-gray-100 text-gray-300 cursor-not-allowed'}
+              `}
+            >
+              {cat.label}
+              {!cat.active && <span className="ml-1 text-xs opacity-60">soon</span>}
+            </button>
+          )
+        })}
+      </div>
+
       {/* Swipe hint */}
       <div className="px-6 mb-2 flex gap-4 text-xs text-gray-400">
         <span>← Dislike</span>
@@ -108,59 +153,24 @@ export function DiscoveryScreen() {
 
       {/* Card stack */}
       <div className="px-6 flex-1 flex flex-col justify-center">
-        {allSeen ? (
-          <AnimatePresence>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center text-center py-16"
-            >
-              <div className="text-6xl mb-4">✨</div>
-              <h2 className="font-serif text-2xl font-semibold text-gray-900 mb-2">
-                All done!
-              </h2>
-              <p className="text-gray-500 text-base mb-6">
-                You've rated everything in your style. Check your favourites or start fresh.
-              </p>
-              <button
-                onClick={() => setWishlistOpen(true)}
-                className="flex items-center gap-2 bg-gray-900 text-white font-semibold px-6 py-3 rounded-2xl mb-3 hover:bg-gray-700 transition-colors"
-              >
-                <Heart size={18} />
-                View favourites ({wishlist.length})
-              </button>
-              <button
-                onClick={reset}
-                className="flex items-center gap-2 text-gray-500 font-medium px-6 py-3 rounded-2xl hover:bg-gray-200 transition-colors"
-              >
-                <RefreshCw size={16} />
-                Start over
-              </button>
-            </motion.div>
-          </AnimatePresence>
-        ) : (
-          <>
-            <CardStack
-              cards={rankedRef.current}
-              topIndex={topIndex}
-              onSwipe={handleSwipe}
-            />
+        <CardStack
+          key={generation}
+          cards={rankedRef.current}
+          topIndex={topIndex}
+          onSwipe={handleSwipe}
+        />
 
-            {/* Action buttons — always explicit, never triggered by swipe score */}
-            {currentItem && (
-              <ActionBar
-                onFavourite={handleFavourite}
-                onBuy={handleBuy}
-                isFavourited={isFavourited}
-              />
-            )}
-          </>
+        {currentItem && (
+          <ActionBar
+            onFavourite={handleFavourite}
+            onBuy={() => setBuyItem(currentItem)}
+            isFavourited={isFavourited}
+          />
         )}
       </div>
 
       <div className="pb-6" />
 
-      {/* Modals */}
       <BuyModal item={buyItem} onClose={() => setBuyItem(null)} />
 
       <WishlistDrawer

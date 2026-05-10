@@ -27,7 +27,7 @@ let engine = new TagWeightedEngine()
 export const useSessionStore = create<SessionState>()(
   persist(
     (set, get) => ({
-      screen: 'category',
+      screen: 'grasp',
       category: null,
       graspRound: 0,
       discoveryItems: [],
@@ -35,8 +35,7 @@ export const useSessionStore = create<SessionState>()(
       swipeHistory: [],
 
       selectCategory: (category) => {
-        engine.reset()
-        set({ category, screen: 'grasp', graspRound: 0, swipeHistory: [], discoveryItems: [] })
+        set({ category, screen: 'discovery' })
       },
 
       recordGraspRound: (pickedId, roundArchetypes) => {
@@ -50,7 +49,8 @@ export const useSessionStore = create<SessionState>()(
         const nextRound = get().graspRound + 1
         const history = [...get().swipeHistory, ...events]
         if (nextRound >= 3) {
-          set({ swipeHistory: history, screen: 'discovery' })
+          // Style learned — now let user pick what to shop
+          set({ swipeHistory: history, screen: 'category' })
         } else {
           set({ graspRound: nextRound, swipeHistory: history })
         }
@@ -75,7 +75,7 @@ export const useSessionStore = create<SessionState>()(
       reset: () => {
         engine.reset()
         set({
-          screen: 'category',
+          screen: 'grasp',
           category: null,
           graspRound: 0,
           discoveryItems: [],

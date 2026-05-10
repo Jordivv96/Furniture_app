@@ -18,10 +18,10 @@ export function CategoryScreen() {
     <div className="min-h-screen bg-[#F7F5F2] flex flex-col">
       <div className="px-6 pt-14 pb-6">
         <h1 className="font-serif text-4xl font-semibold text-gray-900 leading-tight">
-          What are you<br />shopping for?
+          Now, what do you<br />want to shop?
         </h1>
         <p className="text-gray-500 mt-3 text-base">
-          We'll learn your style and find your perfect match.
+          Your style is locked in. Pick a category and start swiping.
         </p>
       </div>
 
